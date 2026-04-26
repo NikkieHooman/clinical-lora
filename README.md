@@ -63,24 +63,55 @@ Three tasks are supported, all through a single Alpaca-style instruction interfa
 ## Architecture
 
 ```text
-Llama-3-8B-Instruct  (frozen, 4-bit NF4)
-        │
-        ▼
-   LoRA adapters injected into:
-   ┌────────────────────────────────────────┐
-   │  q_proj  k_proj  v_proj  o_proj        │  ← attention
-   │  gate_proj  up_proj  down_proj         │  ← MLP (SwiGLU)
-   │                                        │
-   │  rank r=16, alpha=32, dropout=0.05     │
-   │  ~21M trainable params (0.5% of 8B)    │
-   └────────────────────────────────────────┘
-        │
-        ▼
-  Alpaca-style prompts
-  ### System:       clinical assistant persona
-  ### Instruction:  task description
-  ### Input:        note or sentence
-  ### Response:     target output, JSON or text
+┌──────────────────────────────────────────────────────────────┐
+│                  Llama-3-8B-Instruct                         │
+│                  Frozen base model                           │
+│                  4-bit NF4 quantization                       │
+└───────────────────────────────┬──────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     QLoRA Adaptation Layer                    │
+│                                                              │
+│  LoRA modules are injected into selected transformer layers:  │
+│                                                              │
+│  Attention projections:                                      │
+│    q_proj, k_proj, v_proj, o_proj                            │
+│                                                              │
+│  MLP / SwiGLU projections:                                   │
+│    gate_proj, up_proj, down_proj                             │
+│                                                              │
+│  Configuration:                                              │
+│    rank r = 16                                               │
+│    alpha = 32                                                │
+│    dropout = 0.05                                            │
+│    trainable parameters ≈ 21M                                │
+│    trainable fraction ≈ 0.5% of the 8B base model             │
+└───────────────────────────────┬──────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────┐
+│                 Unified Clinical Instruction Format           │
+│                                                              │
+│  System:       clinical assistant role                        │
+│  Instruction:  task-specific instruction                      │
+│  Input:        discharge note or clinical sentence             │
+│  Response:     structured clinical output                     │
+│                                                              │
+│  Supported outputs:                                           │
+│    • ICD-9 code predictions in JSON format                    │
+│    • Five-section discharge summaries                         │
+│    • Clinical NER spans in JSON format                        │
+└───────────────────────────────┬──────────────────────────────┘
+                                │
+                                ▼
+┌──────────────────────────────────────────────────────────────┐
+│                       Task-Specific Output                    │
+│                                                              │
+│  ICD-9 Coding        → top-5 ICD-9 codes + descriptions       │
+│  Summarisation       → structured discharge summary           │
+│  Named Entity Rec.   → entities, labels, and character spans  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Why QLoRA over full fine-tuning?
