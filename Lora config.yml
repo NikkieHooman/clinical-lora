@@ -1,0 +1,32 @@
+model:
+  base_id: "meta-llama/Meta-Llama-3-8B-Instruct"
+  quantization: nf4          
+  double_quant: true
+  compute_dtype: bfloat16
+
+lora:
+  rank: 16                   
+  alpha: 32                  
+  dropout: 0.05
+
+training:
+  epochs: 3
+  batch_size: 4
+  grad_accum: 8              
+  lr: 2.0e-4
+  max_seq_len: 1024
+  output_dir: "results"
+  use_wandb: true
+
+tasks:
+  icd_coding:
+    max_seq_len: 1024
+    epochs: 3
+  summarization:
+    max_seq_len: 2048       
+    epochs: 2
+    batch_size: 2
+    grad_accum: 16
+  ner:
+    max_seq_len: 512
+    epochs: 5                
