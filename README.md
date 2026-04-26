@@ -62,58 +62,121 @@ Three tasks are supported, all through a single Alpaca-style instruction interfa
 
 ## Architecture
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                  Llama-3-8B-Instruct                         │
-│                  Frozen base model                           │
-│                  4-bit NF4 quantization                       │
-└───────────────────────────────┬──────────────────────────────┘
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     QLoRA Adaptation Layer                    │
-│                                                              │
-│  LoRA modules are injected into selected transformer layers:  │
-│                                                              │
-│  Attention projections:                                      │
-│    q_proj, k_proj, v_proj, o_proj                            │
-│                                                              │
-│  MLP / SwiGLU projections:                                   │
-│    gate_proj, up_proj, down_proj                             │
-│                                                              │
-│  Configuration:                                              │
-│    rank r = 16                                               │
-│    alpha = 32                                                │
-│    dropout = 0.05                                            │
-│    trainable parameters ≈ 21M                                │
-│    trainable fraction ≈ 0.5% of the 8B base model             │
-└───────────────────────────────┬──────────────────────────────┘
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────────┐
-│                 Unified Clinical Instruction Format           │
-│                                                              │
-│  System:       clinical assistant role                        │
-│  Instruction:  task-specific instruction                      │
-│  Input:        discharge note or clinical sentence             │
-│  Response:     structured clinical output                     │
-│                                                              │
-│  Supported outputs:                                           │
-│    • ICD-9 code predictions in JSON format                    │
-│    • Five-section discharge summaries                         │
-│    • Clinical NER spans in JSON format                        │
-└───────────────────────────────┬──────────────────────────────┘
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────────┐
-│                       Task-Specific Output                    │
-│                                                              │
-│  ICD-9 Coding        → top-5 ICD-9 codes + descriptions       │
-│  Summarisation       → structured discharge summary           │
-│  Named Entity Rec.   → entities, labels, and character spans  │
-└──────────────────────────────────────────────────────────────┘
+ClinicalLoRA uses a parameter-efficient QLoRA fine-tuning setup on top of a frozen Llama-3-8B-Instruct backbone. The base model is loaded in 4-bit NF4 precision, while a small set of LoRA adapter weights is trained on clinical instruction-response pairs.
+
+```mermaid
+flowchart TD
+    A["Clinical Input<br/>Discharge note or clinical sentence"] --> B["Alpaca-style Prompt Builder"]
+
+    B --> C["System Prompt<br/>Clinical assistant role"]
+    B --> D["Task Instruction<br/>ICD coding, summarisation, or NER"]
+    B --> E["Input Text<br/>MIMIC-III note or n2c2 sentence"]
+
+    C --> F["Tokenized Instruction Example"]
+    D --> F
+    E --> F
+
+    F --> G["Llama-3-8B-Instruct<br/>Frozen base model<br/>4-bit NF4 quantization"]
+
+    G --> H["QLoRA Adapter Layers"]
+
+    H --> I["Attention Projection Adapters<br/>q_proj, k_proj, v_proj, o_proj"]
+    H --> J["MLP Projection Adapters<br/>gate_proj, up_proj, down_proj"]
+
+    I --> K["ClinicalLoRA Output Head<br/>Autoregressive text generation"]
+    J --> K
+
+    K --> L["Task-specific Output"]
+    L --> M["ICD-9 Codes<br/>Top-5 JSON predictions"]
+    L --> N["Discharge Summary<br/>Five-section structured summary"]
+    L --> O["Clinical NER<br/>JSON entities with spans"]
 ```
 
+### Model stack
+
+| Component | Description |
+|----------|-------------|
+| **Base model** | `meta-llama/Meta-Llama-3-8B-Instruct` |
+| **Training method** | QLoRA parameter-efficient supervised fine-tuning |
+| **Quantization** | 4-bit NF4 quantization |
+| **Base model status** | Frozen during training |
+| **Trainable module** | LoRA adapters only |
+| **Prompt format** | Alpaca-style clinical instruction format |
+| **Supported tasks** | ICD-9 coding, discharge summarisation, clinical NER |
+
+### LoRA configuration
+
+| Hyperparameter | Value |
+|---------------|-------|
+| LoRA rank `r` | `16` |
+| LoRA alpha | `32` |
+| LoRA dropout | `0.05` |
+| Target attention modules | `q_proj`, `k_proj`, `v_proj`, `o_proj` |
+| Target MLP modules | `gate_proj`, `up_proj`, `down_proj` |
+| Trainable parameters | approximately `21M` |
+| Trainable fraction | approximately `0.5%` of the 8B base model |
+| Adapter size | approximately `40 MB` |
+
+### Adapter injection points
+
+ClinicalLoRA injects LoRA adapters into both the self-attention and feed-forward blocks of the Llama-3 transformer.
+
+```text
+Llama-3 Transformer Block
+│
+├── Self-Attention
+│   ├── q_proj  ← LoRA
+│   ├── k_proj  ← LoRA
+│   ├── v_proj  ← LoRA
+│   └── o_proj  ← LoRA
+│
+├── MLP / SwiGLU
+│   ├── gate_proj  ← LoRA
+│   ├── up_proj    ← LoRA
+│   └── down_proj  ← LoRA
+│
+└── Frozen base parameters
+```
+
+This design keeps the original Llama-3-8B-Instruct weights unchanged while allowing the adapter layers to specialize the model for clinical language, discharge-note structure, ICD-9 coding patterns, and entity-level clinical extraction.
+
+### Prompt format
+
+All tasks use the same instruction-style format. Only the task instruction and expected response format change.
+
+```text
+### System:
+You are a clinical NLP assistant trained to understand discharge notes,
+medical abbreviations, diagnoses, procedures, and clinical entities.
+
+### Instruction:
+{task-specific instruction}
+
+### Input:
+{clinical note or sentence}
+
+### Response:
+{target clinical output}
+```
+
+### Task-specific outputs
+
+| Task | Input | Model output |
+|------|-------|--------------|
+| **ICD-9 coding** | Discharge note | JSON list of top-5 ICD-9 codes with descriptions |
+| **Discharge summarisation** | Full discharge note | Five-section structured clinical summary |
+| **Clinical NER** | Single clinical sentence | JSON list of entities, entity types, and character spans |
+
+### Training objective
+
+During supervised fine-tuning, the model is trained only to generate the response portion of the prompt. Instruction and input tokens are masked from the loss using `labels = -100`.
+
+```text
+Prompt tokens:    ignored during loss computation
+Response tokens:  used for language modeling loss
+```
+
+This prevents the model from learning to copy the prompt and focuses training on producing clinically useful structured outputs.
 ### Why QLoRA over full fine-tuning?
 
 Full fine-tuning of an 8B model requires around 80 GB VRAM and produces a checkpoint of around 16 GB.
