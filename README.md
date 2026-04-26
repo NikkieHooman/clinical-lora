@@ -277,17 +277,13 @@ python src/evaluate.py \
 
 ---
 
-### 5. Run Inference
-
-ClinicalLoRA supports both Python API inference and command-line inference. Each task uses the same model wrapper, with the task selected through the `task` argument.
-
-> Example outputs below are illustrative. Actual predictions depend on the trained adapter checkpoint and decoding settings.
-
 ---
+
+### 5. Inference
 
 #### Python API
 
-##### ICD-9 Coding
+##### ICD coding
 
 ```python
 from src.inference import ClinicalLoRA
@@ -295,51 +291,48 @@ from src.inference import ClinicalLoRA
 model = ClinicalLoRA(
     adapter_path="results/icd_coding/adapter",
     task="icd_coding",
-    load_in_4bit=True,
 )
 
 note = """
-72-year-old male with a history of hypertension and type 2 diabetes admitted
+72-year-old male with history of hypertension and type 2 diabetes admitted
 with acute onset chest pain. EKG showed ST-elevation in leads II, III, aVF.
 Troponin elevated at 4.2. Emergent cardiac catheterization performed,
 drug-eluting stent placed in RCA. Patient stabilized on aspirin, clopidogrel,
 metoprolol, lisinopril. Discharged day 5 in stable condition.
 """
 
-predictions = model.predict(text=note)
-print(predictions)
+result = model.predict(text=note)
+print(result)
 ```
 
-Expected output format:
+Example output:
 
 ```json
 [
   {
     "code": "410.91",
-    "description": "Acute myocardial infarction, unspecified site"
+    "description": "Acute MI anterolateral wall"
   },
   {
     "code": "414.01",
-    "description": "Coronary atherosclerosis of native coronary artery"
+    "description": "Coronary artery disease"
   },
   {
     "code": "401.9",
-    "description": "Unspecified essential hypertension"
+    "description": "Unspecified hypertension"
   },
   {
     "code": "250.00",
-    "description": "Type II diabetes mellitus without complication"
+    "description": "Diabetes mellitus, type II"
   },
   {
     "code": "36.06",
-    "description": "Insertion of non-drug-eluting coronary artery stent"
+    "description": "Insertion of coronary stent"
   }
 ]
 ```
 
----
-
-##### Discharge Summarisation
+##### Summarisation
 
 ```python
 from src.inference import ClinicalLoRA
@@ -347,35 +340,23 @@ from src.inference import ClinicalLoRA
 model = ClinicalLoRA(
     adapter_path="results/summarization/adapter",
     task="summarization",
-    load_in_4bit=True,
 )
 
 summary = model.predict(text=note)
 print(summary)
 ```
 
-Expected output format:
+Example output:
 
 ```text
-1. Chief complaint:
-   Acute chest pain with ST-elevation myocardial infarction.
-
-2. Key findings:
-   ST-elevation in leads II, III, and aVF with elevated troponin.
-
-3. Diagnoses:
-   Inferior STEMI, coronary artery disease, hypertension, and type 2 diabetes.
-
-4. Procedures:
-   Emergent cardiac catheterization with stent placement to the RCA.
-
-5. Discharge condition and follow-up:
-   Discharged in stable condition on dual antiplatelet therapy with cardiology follow-up.
+1. Chief complaint: Acute chest pain with ST-elevation MI
+2. Key findings: ST-elevation leads II/III/aVF, troponin 4.2 ng/mL
+3. Diagnoses: Inferior STEMI, CAD, HTN, T2DM
+4. Procedures: Emergent cardiac catheterization, drug-eluting stent to RCA
+5. Discharge: Stable, dual antiplatelet therapy, follow-up with cardiology in 1 week
 ```
 
----
-
-##### Clinical Named Entity Recognition
+##### NER
 
 ```python
 from src.inference import ClinicalLoRA
@@ -383,23 +364,23 @@ from src.inference import ClinicalLoRA
 model = ClinicalLoRA(
     adapter_path="results/ner/adapter",
     task="ner",
-    load_in_4bit=True,
 )
 
-sentence = "Patient has chronic kidney disease and is on hemodialysis."
+result = model.predict(
+    sentence="Patient has chronic kidney disease and is on hemodialysis."
+)
 
-entities = model.predict(sentence=sentence)
-print(entities)
+print(result)
 ```
 
-Expected output format:
+Example output:
 
 ```json
 [
   {
     "entity": "chronic kidney disease",
     "type": "PROBLEM",
-    "span": [12, 34]
+    "span": [11, 33]
   },
   {
     "entity": "hemodialysis",
@@ -411,33 +392,15 @@ Expected output format:
 
 ---
 
-#### Command-Line Interface
+#### CLI
 
-Single-example inference:
+Single-note inference:
 
 ```bash
 python src/inference.py \
     --task icd_coding \
     --adapter results/icd_coding/adapter \
     --input patient_note.txt
-```
-
-Summarisation inference:
-
-```bash
-python src/inference.py \
-    --task summarization \
-    --adapter results/summarization/adapter \
-    --input discharge_note.txt
-```
-
-Clinical NER inference:
-
-```bash
-python src/inference.py \
-    --task ner \
-    --adapter results/ner/adapter \
-    --input sentence.txt
 ```
 
 Batch inference:
@@ -452,78 +415,34 @@ python src/inference.py \
 
 ---
 
-#### Inference Options
-
-| Argument | Description |
-|---------|-------------|
-| `--task` | Task name: `icd_coding`, `summarization`, or `ner` |
-| `--adapter` | Path to the trained LoRA adapter checkpoint |
-| `--input` | Path to a single text input file |
-| `--batch` | Path to a CSV file for batch inference |
-| `--output` | Path where predictions should be saved |
-| `--load_in_4bit` | Load the model in 4-bit mode for lower VRAM usage |
-| `--max_new_tokens` | Maximum number of tokens generated in the response |
-| `--temperature` | Sampling temperature for generation |
-| `--top_p` | Nucleus sampling parameter |
-
-Recommended deterministic decoding for evaluation:
-
-```bash
---temperature 0.0
-```
-
-Recommended generation setting for summarisation:
-
-```bash
---max_new_tokens 512
-```
-
----
-
 ## Input and Output Specification
-
-ClinicalLoRA uses task-specific input and output schemas. ICD-9 coding and NER return structured JSON outputs, while summarisation returns a structured free-text summary.
-
----
 
 ### ICD-9 Coding
 
 #### Input
 
-| Field | Type | Description |
-|------|------|-------------|
-| `text` | `str` | Discharge note text |
-| Maximum length | `3,000 characters` | Longer notes are truncated before prompting |
-
-The model expects a discharge summary or discharge-note-like clinical document.
-
 ```text
-72-year-old male with hypertension and type 2 diabetes admitted with chest pain...
+text: str
+Discharge note text, up to 3,000 characters.
+
+If the note is longer, it is truncated from the beginning because most diagnostic
+information usually appears early in discharge notes.
 ```
 
 #### Output
 
-The model returns up to five ICD-9 predictions sorted by predicted relevance.
+```text
+List[Dict]
 
-```json
-[
-  {
-    "code": "410.91",
-    "description": "Acute myocardial infarction, unspecified site"
-  },
-  {
-    "code": "414.01",
-    "description": "Coronary atherosclerosis of native coronary artery"
-  }
-]
+Each dictionary contains:
+  code: str
+      ICD-9 code string, for example "410.91"
+
+  description: str
+      Short ICD-9 title from D_ICD_DIAGNOSES.csv
+
+The model returns up to 5 items sorted by predicted relevance.
 ```
-
-Output schema:
-
-| Field | Type | Description |
-|------|------|-------------|
-| `code` | `str` | ICD-9 diagnosis or procedure code |
-| `description` | `str` | Human-readable ICD-9 description |
 
 ---
 
@@ -531,84 +450,51 @@ Output schema:
 
 #### Input
 
-| Field | Type | Description |
-|------|------|-------------|
-| `text` | `str` | Full discharge note |
-| Maximum length | `6,000 characters` | Longer notes are truncated before prompting |
+```text
+text: str
+Full discharge note, up to 6,000 characters.
+```
 
 #### Output
 
-The model returns a five-section structured summary.
-
 ```text
-1. Chief complaint:
-   ...
+str
 
-2. Key findings:
-   ...
-
-3. Diagnoses:
-   ...
-
-4. Procedures:
-   ...
-
-5. Discharge condition and follow-up:
-   ...
+A free-text structured summary with five labelled sections:
+  1. Chief complaint
+  2. Key findings
+  3. Diagnoses
+  4. Procedures
+  5. Discharge condition and follow-up plan
 ```
-
-Required summary sections:
-
-| Section | Description |
-|--------|-------------|
-| `Chief complaint` | Main reason for admission |
-| `Key findings` | Important labs, imaging, vitals, or exam findings |
-| `Diagnoses` | Main diagnoses described in the note |
-| `Procedures` | Major procedures or interventions |
-| `Discharge condition and follow-up` | Discharge status, medications, and follow-up plan |
 
 ---
 
-### Clinical Named Entity Recognition
+### Clinical NER
 
 #### Input
 
-| Field | Type | Description |
-|------|------|-------------|
-| `sentence` | `str` | A single clinical sentence |
-
-NER is designed for sentence-level extraction rather than full-note extraction.
-
 ```text
-Patient has chronic kidney disease and is on hemodialysis.
+sentence: str
+A single clinical sentence, not a full note.
 ```
 
 #### Output
 
-The model returns a JSON list of extracted entities.
+```text
+List[Dict]
 
-```json
-[
-  {
-    "entity": "chronic kidney disease",
-    "type": "PROBLEM",
-    "span": [12, 34]
-  },
-  {
-    "entity": "hemodialysis",
-    "type": "TREATMENT",
-    "span": [45, 57]
-  }
-]
+Each dictionary contains:
+  entity: str
+      Surface form of the entity as it appears in the sentence
+
+  type: str
+      One of: PROBLEM, TREATMENT, TEST
+
+  span: [int, int]
+      Character-level start and end indices.
+      The end index is exclusive.
 ```
-
-Output schema:
-
-| Field | Type | Description |
-|------|------|-------------|
-| `entity` | `str` | Exact entity text from the input sentence |
-| `type` | `str` | Entity label: `PROBLEM`, `TREATMENT`, or `TEST` |
-| `span` | `List[int]` | Character-level `[start, end]` span with exclusive end index |
 
 ---
 
@@ -617,47 +503,38 @@ Output schema:
 ```text
 clinical-lora/
 ├── src/
-│   ├── dataset.py
-│   │   ├── MIMIC-III discharge-note loading
-│   │   ├── ICD-9 label construction
-│   │   ├── n2c2 NER example formatting
-│   │   └── Alpaca-style prompt templates
-│   │
-│   ├── train.py
-│   │   ├── QLoRA model loading
-│   │   ├── LoRA adapter configuration
-│   │   ├── supervised fine-tuning loop
-│   │   └── checkpoint saving
-│   │
-│   ├── inference.py
-│   │   ├── ClinicalLoRA inference wrapper
-│   │   ├── task-specific prompt construction
-│   │   ├── single-example inference
-│   │   └── batch inference CLI
-│   │
-│   ├── evaluate.py
-│   │   ├── ICD-9 Precision@5 / Recall@5 / Micro-F1
-│   │   ├── summarisation ROUGE / BERTScore
-│   │   └── NER precision / recall / F1
-│   │
-│   └── merge.py
-│       └── optional adapter merging into the base model
-│
+│   ├── dataset.py       # Prompt templates and MIMIC/n2c2 data loaders
+│   ├── train.py         # QLoRA fine-tuning with SFTTrainer
+│   ├── inference.py     # ClinicalLoRA class and CLI
+│   ├── evaluate.py      # Task-specific metrics
+│   └── merge.py         # Merge adapter into base model
 ├── configs/
-│   └── lora_config.yaml
-│       ├── LoRA hyperparameters
-│       ├── training arguments
-│       └── generation settings
-│
-├── results/
-│   ├── icd_coding/
-│   ├── summarization/
-│   └── ner/
-│
+│   └── lora_config.yaml # Hyperparameters
+├── results/             # Checkpoints and evaluation outputs, gitignored
 ├── requirements.txt
-├── README.md
-└── LICENSE
+└── README.md
 ```
+
+---
+
+## Hardware Requirements
+
+| Setup | VRAM | Training time | Notes |
+|-------|------|---------------|-------|
+| 1× A100 40 GB | 18 GB used | ~2.5 h/task | Recommended |
+| 1× RTX 4090 24 GB | 22 GB used | ~5 h/task | Reduce `batch_size` to 2 |
+| Google Colab A100 | 18 GB used | ~3 h/task | Free tier or Colab Pro |
+| 2× RTX 3090 24 GB | 12 GB/GPU | ~4 h/task | Use `device_map="auto"` |
+
+Inference with adapter-only or merged model needs around 16 GB VRAM for bfloat16.
+
+Use 4-bit loading at inference for lower memory usage:
+
+```python
+load_in_4bit=True
+```
+
+This reduces inference VRAM to around 6 GB.
 
 ---
 
@@ -665,151 +542,25 @@ clinical-lora/
 
 ### Why Llama-3-8B-Instruct?
 
-ClinicalLoRA uses `meta-llama/Meta-Llama-3-8B-Instruct` because it provides a strong instruction-following foundation while remaining practical for single-GPU QLoRA fine-tuning.
+Llama-3-8B-Instruct follows instructions reliably out of the box, which makes it suitable for Alpaca-style prompts without extra alignment.
 
-The instruction-tuned base model is useful for this project because all three tasks are naturally expressed as instruction-response problems:
-
-- ICD-9 coding: generate structured code predictions from a discharge note
-- Summarisation: generate a structured clinical summary
-- NER: generate JSON-formatted entity spans
-
-Using an instruction-tuned backbone also reduces the amount of task-specific engineering needed. The same prompt interface can be reused across all tasks.
-
----
-
-### Why QLoRA?
-
-Full fine-tuning of an 8B parameter model is expensive and memory intensive. QLoRA makes the training setup more practical by freezing the base model, loading it in 4-bit precision, and training only a small number of adapter parameters.
-
-This has four practical advantages:
-
-1. **Lower memory usage**  
-   The base model is quantized to 4-bit NF4, reducing GPU memory requirements.
-
-2. **Smaller checkpoints**  
-   Only the LoRA adapter weights are saved, rather than a full copy of the model.
-
-3. **Faster experimentation**  
-   Different tasks can use separate adapters without retraining or duplicating the base model.
-
-4. **Easier deployment**  
-   The base model and adapter can be loaded together at inference time, or the adapter can be merged into the base model when needed.
+Smaller models, such as Mistral 7B, produced more hallucinated ICD codes. Larger models, such as 70B models, are harder to fine-tune on a single GPU, even with QLoRA.
 
 ---
 
 ### Why one prompt format for all tasks?
 
-ClinicalLoRA uses a unified Alpaca-style prompt format across ICD-9 coding, summarisation, and NER.
+A shared instruction interface allows the same training and inference pipeline to support multiple clinical NLP tasks using the `--task` flag.
 
-This keeps the training and inference pipeline simple:
-
-```text
-### System:
-{clinical assistant role}
-
-### Instruction:
-{task-specific instruction}
-
-### Input:
-{clinical text}
-
-### Response:
-{target output}
-```
-
-The model architecture does not change between tasks. Only the instruction text, input text, and expected output format change.
-
-This design makes the repository easier to extend to additional clinical NLP tasks, such as:
-
-- medication extraction
-- problem-list generation
-- procedure extraction
-- discharge instruction generation
-- phenotype classification as text generation
-
----
-
-### Why supervised fine-tuning instead of classification heads?
-
-ClinicalLoRA treats all tasks as text generation tasks rather than adding task-specific classification heads.
-
-This design was chosen because the three supported tasks have different output structures:
-
-| Task | Output type |
-|------|-------------|
-| ICD-9 coding | JSON list of codes and descriptions |
-| Summarisation | Multi-section free-text summary |
-| Clinical NER | JSON list of entities and spans |
-
-A generative instruction-following format allows the same model interface to handle all three output types.
-
----
-
-### Why token masking on the instruction?
-
-During training, loss is computed only on the response tokens. The system prompt, instruction, and input text are included as context, but they are masked from the training loss using:
-
-```python
-labels = -100
-```
-
-This prevents the model from learning to copy the prompt and focuses optimization on generating the correct clinical output.
-
-```text
-System prompt:    ignored by loss
-Instruction:      ignored by loss
-Input text:       ignored by loss
-Response:         included in loss
-```
+This makes the repository easier to extend. New tasks can be added by changing the dataset formatting and instruction template instead of changing the model architecture.
 
 ---
 
 ### Why silver-standard summaries?
 
-MIMIC-III does not provide a separate human-written summarisation benchmark for every discharge note. However, discharge summaries often contain structured physician-written sections, such as hospital course, discharge diagnosis, procedures, and discharge instructions.
+MIMIC-III discharge notes already contain physician-written sections such as Brief Hospital Course.
 
-ClinicalLoRA uses these sections to construct silver-standard summarisation targets.
-
-This approach makes the summarisation task scalable while still grounding the target summaries in clinically meaningful physician-authored text.
-
----
-
-### Why structured JSON outputs?
-
-ICD-9 coding and NER use JSON outputs because they are easier to evaluate, parse, and integrate into downstream pipelines.
-
-For example, ICD-9 coding returns:
-
-```json
-[
-  {
-    "code": "401.9",
-    "description": "Unspecified essential hypertension"
-  }
-]
-```
-
-NER returns:
-
-```json
-[
-  {
-    "entity": "hemodialysis",
-    "type": "TREATMENT",
-    "span": [45, 57]
-  }
-]
-```
-
-Structured generation makes the model output easier to validate than unrestricted free text.
-
----
-
-### Why keep the base model frozen?
-
-The base Llama-3-8B-Instruct weights are kept frozen during training. Only the LoRA adapter parameters are updated.
-
-This reduces training cost and helps preserve the general instruction-following ability of the base model while allowing the adapter to specialize in clinical language and task-specific output formats.
+These sections can be extracted programmatically and used as silver-standard summaries. This avoids expensive manual annotation while still using clinically meaningful text.
 
 ---
 
@@ -826,6 +577,17 @@ labels = -100
 This prevents the model from simply learning to reproduce the prompt and focuses learning on generating the correct clinical output.
 
 ---
+
+## Citation
+
+```bibtex
+@software{clinical_lora_2025,
+  author  = {Your Name},
+  title   = {ClinicalLoRA: QLoRA Fine-Tuning of Llama-3 on Clinical Notes},
+  year    = {2025},
+  url     = {https://github.com/YOUR_USERNAME/clinical-lora}
+}
+```
 
 This project builds on:
 
